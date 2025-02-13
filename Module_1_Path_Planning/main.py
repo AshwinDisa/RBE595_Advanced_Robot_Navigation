@@ -439,7 +439,7 @@ def calculate_path_length(path):
     return length
 
 if __name__ == '__main__':
-    file_path = 'Module_1_Path_Planning/maps/map2.txt'
+    file_path = 'Module_1_Path_Planning/maps/map3.txt'
     start_goal_pairs, grid = parse_input_file(file_path)
 
     for start, goal in start_goal_pairs:
