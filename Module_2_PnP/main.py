@@ -100,7 +100,7 @@ def align_ground_truth(estimated_dict, ground_truth_dict):
 
     return aligned_ground_truth
 
-def visualize_camera_and_ground_truth(aligned_gt, estimated, scale=0.2):
+def visualize_camera_and_ground_truth(estimated, aligned_gt, scale=0.2):
     global trajectory, gt_trajectory
 
     fig = plt.figure(figsize=(10, 7))
@@ -109,21 +109,17 @@ def visualize_camera_and_ground_truth(aligned_gt, estimated, scale=0.2):
     plt.ion() 
 
     index = 0
+    l2_errors = []
+    timestamps = []
+
     for est_time, drone_position in estimated.items():
 
-        if drone_position is None:
-            print(f"Skipping frame {index} due to PnP failure.")
-            index += 1
-            continue
-
         R_est = None
-        # You could optionally store R_est per timestamp in a dict for full visual orientation
-        # Here we use the last known good R_est
         if index < len(data['data']):
             _, R_est = estimate_pose(data['data'][index])
 
-        if R_est is None:
-            print(f"Skipping frame {index} due to missing rotation matrix.")
+        if drone_position is None or R_est is None:
+            print(f"Skipping frame {index} for visualization due to PnP failure.")
             index += 1
             continue
 
@@ -134,6 +130,12 @@ def visualize_camera_and_ground_truth(aligned_gt, estimated, scale=0.2):
         roll, pitch, yaw = gt_data[3], gt_data[4], gt_data[5]
 
         trajectory.append(drone_position)
+
+        # Compute L2 position error
+        gt_pos = np.array([x, y, z])
+        l2_error = np.linalg.norm(drone_position - gt_pos)
+        l2_errors.append(l2_error)
+        timestamps.append(est_time)
 
         # Compute estimated camera axes
         x_est = R_est.T @ CAM_TO_DRONE_ROTATION.T @ np.array([[scale], [0], [0]]) + drone_position.reshape(3, 1)
@@ -146,7 +148,6 @@ def visualize_camera_and_ground_truth(aligned_gt, estimated, scale=0.2):
         ax.plot([drone_position[0], z_est[0][0]], [drone_position[1], z_est[1][0]], [drone_position[2], z_est[2][0]], 'b')
 
         # Ground Truth
-        gt_pos = np.array([x, y, z])
         gt_trajectory.append(gt_pos)
         R_gt = R.from_euler('xyz', [roll, pitch, yaw]).as_matrix()
 
@@ -175,9 +176,24 @@ def visualize_camera_and_ground_truth(aligned_gt, estimated, scale=0.2):
         ax.set_box_aspect([1, 1, 1])
         ax.set_title(f"Estimated Camera Pose vs Ground Truth at t={est_time}")
 
-        plt.draw()
-        plt.pause(0.05)
+        # plt.draw()
+        # plt.pause(0.05)
         index += 1
+
+    mean_l2_error = np.mean(l2_errors)
+    print(f"Mean Squared Error: {mean_l2_error:.4f}")
+    # Final L2 norm plot
+    plt.ioff()
+    fig2 = plt.figure(figsize=(10, 5))
+    plt.plot(timestamps, l2_errors)
+    plt.axhline(y=mean_l2_error, color='r', linestyle='--', label=f'Mean L2 Error: {mean_l2_error:.4f}')
+    plt.ylim([0, 1])
+    plt.xlabel("Timestamps")
+    plt.ylabel("MSE value")
+    plt.title("MSE in position")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
 
 def rotationMatrixToEulerAngles(R):
     """
@@ -326,7 +342,52 @@ def save_images(data):
     
     return None
 
+def estimate_covariance(estimated, aligned_gt):
 
+    index = 0
+    residuals = []
+    for est_time, drone_position in estimated.items():
+
+        R_est = None
+        if index < len(data['data']):
+            _, R_est = estimate_pose(data['data'][index])
+
+        if drone_position is None or R_est is None:
+            print(f"Skipping frame {index} for covariance estimation due to PnP failure.")
+            index += 1
+            continue
+
+        gt_data = aligned_gt[est_time]
+
+        # Convert estimated rotation matrix to roll, pitch, yaw
+        r = R.from_matrix(R_est)
+        roll_est, pitch_est, yaw_est = r.as_euler('xyz', degrees=False)
+
+        # Construct full estimated pose
+        est_pose = np.array([drone_position[0], drone_position[1], drone_position[2], roll_est, pitch_est, yaw_est])
+
+        # Compute residual v_t = ground truth - estimated
+        v_t = np.array(gt_data[:6]) - est_pose
+        residuals.append(v_t)
+
+        index += 1
+
+    residuals = np.array(residuals)
+    n = residuals.shape[0]
+
+    if n < 2:
+        raise ValueError("Not enough valid samples to compute covariance.")
+
+    # Compute sample covariance matrix
+    mean_residual = np.mean(residuals, axis=0, keepdims=True)
+
+    pdb.set_trace()
+    
+    centered_residuals = residuals - mean_residual
+    R_cov = (centered_residuals.T @ centered_residuals) / (n - 1)
+
+    print("Covariance matrix R:\n", R_cov)
+    return R_cov
 
 if __name__ == '__main__':
 
@@ -363,6 +424,8 @@ if __name__ == '__main__':
     # Align ground truth to estimated
     aligned_gt = align_ground_truth(estimated, ground_truth)
 
+    # estimate the covariance
+    estimate_covariance(estimated, aligned_gt)
 
-    visualize_camera_and_ground_truth(aligned_gt, estimated)
+    visualize_camera_and_ground_truth(estimated, aligned_gt)
 
