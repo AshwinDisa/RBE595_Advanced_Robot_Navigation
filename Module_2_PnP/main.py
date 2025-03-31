@@ -176,8 +176,8 @@ def visualize_camera_and_ground_truth(estimated, aligned_gt, scale=0.2):
         ax.set_box_aspect([1, 1, 1])
         ax.set_title(f"Estimated Camera Pose vs Ground Truth at t={est_time}")
 
-        # plt.draw()
-        # plt.pause(0.05)
+        plt.draw()
+        plt.pause(0.05)
         index += 1
 
     mean_l2_error = np.mean(l2_errors)
@@ -380,9 +380,6 @@ def estimate_covariance(estimated, aligned_gt):
 
     # Compute sample covariance matrix
     mean_residual = np.mean(residuals, axis=0, keepdims=True)
-
-    pdb.set_trace()
-    
     centered_residuals = residuals - mean_residual
     R_cov = (centered_residuals.T @ centered_residuals) / (n - 1)
 
