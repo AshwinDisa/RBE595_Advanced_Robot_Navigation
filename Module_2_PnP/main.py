@@ -119,7 +119,7 @@ def visualize_camera_and_ground_truth(estimated, aligned_gt, scale=0.2):
             _, R_est = estimate_pose(data['data'][index])
 
         if drone_position is None or R_est is None:
-            print(f"Skipping frame {index} for visualization due to PnP failure.")
+            # print(f"Skipping frame {index} for visualization due to PnP failure.")
             index += 1
             continue
 
@@ -353,7 +353,7 @@ def estimate_covariance(estimated, aligned_gt):
             _, R_est = estimate_pose(data['data'][index])
 
         if drone_position is None or R_est is None:
-            print(f"Skipping frame {index} for covariance estimation due to PnP failure.")
+            # print(f"Skipping frame {index} for covariance estimation due to PnP failure.")
             index += 1
             continue
 
@@ -383,43 +383,48 @@ def estimate_covariance(estimated, aligned_gt):
     centered_residuals = residuals - mean_residual
     R_cov = (centered_residuals.T @ centered_residuals) / (n - 1)
 
-    print("Covariance matrix R:\n", R_cov)
+    print("Final Covariance matrix R:\n", R_cov)
     return R_cov
 
 if __name__ == '__main__':
 
-    # Load the data
-    data_path = 'Module_2_PnP/data/studentdata0.mat'
-    data = sio.loadmat(data_path, simplify_cells=True)
+    estimated_all = {}
+    ground_truth_all = {}
 
-    # extract params from txt
-    K, distortion_coeffs, imu_translation, imu_yaw, tag_matrix = read_parameters(parameters)
+    for i in reversed(range(8)):
 
-    # save images
-    # save_images(data)
+        print(f"Processing data/studentdata{i}.mat")
+        # Load the data
+        data_path = 'Module_2_PnP/data/studentdata' + str(i) + '.mat'
+        data = sio.loadmat(data_path, simplify_cells=True)
 
-    # pdb.set_trace()
-    estimated = {}
-    ground_truth = {}
+        # save images
+        # save_images(data)
 
-    # estimate pose for each frame
-    for i in range(len(data['data'])):  
-        
-        frame_data = data['data'][i]
-        frame_timestamp = frame_data['t']
-        drone_position, R_est = estimate_pose(frame_data)
-        estimated[frame_timestamp] = drone_position
-        # print(frame_timestamp)
+        estimated = {}
+        ground_truth = {}
 
-    for i in range(len(data['time'])):
+        # estimate pose for each frame
+        for i in range(len(data['data'])):  
+            
+            frame_data = data['data'][i]
+            frame_timestamp = frame_data['t']
+            drone_position, R_est = estimate_pose(frame_data)
+            estimated[frame_timestamp] = drone_position
 
-        ground_truth_data = data['vicon'][:, i]
-        ground_truth_timestamp = data['time'][i]
-        ground_truth[ground_truth_timestamp] = ground_truth_data
-        # print(ground_truth_timestamp)
+        for i in range(len(data['time'])):
 
-    # Align ground truth to estimated
-    aligned_gt = align_ground_truth(estimated, ground_truth)
+            ground_truth_data = data['vicon'][:, i]
+            ground_truth_timestamp = data['time'][i]
+            ground_truth[ground_truth_timestamp] = ground_truth_data
+            # print(ground_truth_timestamp)
+
+        # Align ground truth to estimated
+        aligned_gt = align_ground_truth(estimated, ground_truth)
+
+        estimated_all = {**estimated_all, **estimated}
+        ground_truth_all = {**ground_truth_all, **aligned_gt}
+
 
     # estimate the covariance
     estimate_covariance(estimated, aligned_gt)
