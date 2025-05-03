@@ -105,94 +105,125 @@ def visualize_camera_and_ground_truth(estimated, aligned_gt, scale=0.2):
 
     fig = plt.figure(figsize=(10, 7))
     ax = fig.add_subplot(111, projection='3d')
-    ax.set_title("Camera Pose vs Ground Truth")
-    plt.ion() 
+    plt.ion()
 
-    index = 0
+    # error accumulators
     l2_errors = []
     timestamps = []
 
-    for est_time, drone_position in estimated.items():
+    # orientation accumulators
+    roll_est_list, pitch_est_list, yaw_est_list = [], [], []
+    roll_gt_list,  pitch_gt_list,  yaw_gt_list  = [], [], []
 
+    index = 0
+    for est_time, drone_position in estimated.items():
+        # get estimated rotation
         R_est = None
         if index < len(data['data']):
             _, R_est = estimate_pose(data['data'][index])
-
         if drone_position is None or R_est is None:
-            # print(f"Skipping frame {index} for visualization due to PnP failure.")
             index += 1
             continue
 
-        ax.clear()
-        gt_data = aligned_gt[est_time]
+        # ground truth
+        gt = aligned_gt[est_time]
+        gt_pos = np.array(gt[0:3])
+        gt_roll, gt_pitch, gt_yaw = gt[3], gt[4], gt[5]
 
-        x, y, z = gt_data[0], gt_data[1], gt_data[2]
-        roll, pitch, yaw = gt_data[3], gt_data[4], gt_data[5]
-
-        trajectory.append(drone_position)
-
-        # Compute L2 position error
-        gt_pos = np.array([x, y, z])
-        l2_error = np.linalg.norm(drone_position - gt_pos)
-        l2_errors.append(l2_error)
+        # position error
+        l2_err = np.linalg.norm(drone_position - gt_pos)
+        l2_errors.append(l2_err)
         timestamps.append(est_time)
 
-        # Compute estimated camera axes
-        x_est = R_est.T @ CAM_TO_DRONE_ROTATION.T @ np.array([[scale], [0], [0]]) + drone_position.reshape(3, 1)
-        y_est = R_est.T @ CAM_TO_DRONE_ROTATION.T @ np.array([[0], [scale], [0]]) + drone_position.reshape(3, 1)
-        z_est = R_est.T @ CAM_TO_DRONE_ROTATION.T @ np.array([[0], [0], [scale]]) + drone_position.reshape(3, 1)
+        # camera‐to‐world rotation
+        R_cam_world = R_est.T @ CAM_TO_DRONE_ROTATION.T
+        roll_e, pitch_e, yaw_e = R.from_matrix(R_cam_world).as_euler('xyz')
 
+        # store angles (in degrees)
+        roll_est_list.append(np.degrees(roll_e))
+        pitch_est_list.append(np.degrees(pitch_e))
+        yaw_est_list.append(np.degrees(yaw_e))
+        roll_gt_list.append(np.degrees(gt_roll))
+        pitch_gt_list.append(np.degrees(gt_pitch))
+        yaw_gt_list.append(np.degrees(gt_yaw))
+
+        # --- 3D plot (same as before) ---
+        ax.clear()
+        # estimated axes
+        x_est = R_cam_world @ np.array([scale,0,0]) + drone_position
+        y_est = R_cam_world @ np.array([0,scale,0]) + drone_position
+        z_est = R_cam_world @ np.array([0,0,scale]) + drone_position
         ax.scatter(*drone_position, c='m', s=50)
-        ax.plot([drone_position[0], x_est[0][0]], [drone_position[1], x_est[1][0]], [drone_position[2], x_est[2][0]], 'r')
-        ax.plot([drone_position[0], y_est[0][0]], [drone_position[1], y_est[1][0]], [drone_position[2], y_est[2][0]], 'g')
-        ax.plot([drone_position[0], z_est[0][0]], [drone_position[1], z_est[1][0]], [drone_position[2], z_est[2][0]], 'b')
+        ax.plot([drone_position[0], x_est[0]], [drone_position[1], x_est[1]], [drone_position[2], x_est[2]], 'r')
+        ax.plot([drone_position[0], y_est[0]], [drone_position[1], y_est[1]], [drone_position[2], y_est[2]], 'g')
+        ax.plot([drone_position[0], z_est[0]], [drone_position[1], z_est[1]], [drone_position[2], z_est[2]], 'b')
 
-        # Ground Truth
-        gt_trajectory.append(gt_pos)
-        R_gt = R.from_euler('xyz', [roll, pitch, yaw]).as_matrix()
-
-        x_gt = R_gt @ np.array([scale, 0, 0]) + gt_pos
-        y_gt = R_gt @ np.array([0, scale, 0]) + gt_pos
-        z_gt = R_gt @ np.array([0, 0, scale]) + gt_pos
-
+        # GT axes
+        R_gt = R.from_euler('xyz',[gt_roll,gt_pitch,gt_yaw]).as_matrix()
+        x_gt = R_gt @ np.array([scale,0,0]) + gt_pos
+        y_gt = R_gt @ np.array([0,scale,0]) + gt_pos
+        z_gt = R_gt @ np.array([0,0,scale]) + gt_pos
         ax.scatter(*gt_pos, c='c', s=50)
         ax.plot([gt_pos[0], x_gt[0]], [gt_pos[1], x_gt[1]], [gt_pos[2], x_gt[2]], 'r--')
         ax.plot([gt_pos[0], y_gt[0]], [gt_pos[1], y_gt[1]], [gt_pos[2], y_gt[2]], 'g--')
         ax.plot([gt_pos[0], z_gt[0]], [gt_pos[1], z_gt[1]], [gt_pos[2], z_gt[2]], 'b--')
 
-        # Trajectories
+        # trajectories
+        trajectory.append(drone_position)
+        gt_trajectory.append(gt_pos)
         if len(trajectory) > 1:
-            traj = np.array(trajectory)
-            ax.plot(traj[:, 0], traj[:, 1], traj[:, 2], 'm-', label='Estimated Trajectory')
-
+            t = np.array(trajectory)
+            ax.plot(t[:,0], t[:,1], t[:,2], 'm-', label='Est. Traj')
         if len(gt_trajectory) > 1:
-            gt_traj = np.array(gt_trajectory)
-            ax.plot(gt_traj[:, 0], gt_traj[:, 1], gt_traj[:, 2], 'c--', label='Ground Truth Trajectory')
+            g = np.array(gt_trajectory)
+            ax.plot(g[:,0], g[:,1], g[:,2], 'c--', label='GT Traj')
 
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_zlabel('Z')
+        ax.set_xlabel('X'); ax.set_ylabel('Y'); ax.set_zlabel('Z')
+        ax.set_box_aspect([1,1,1])
+        ax.set_title(f"Cam Pose vs GT at t={est_time}")
         ax.legend()
-        ax.set_box_aspect([1, 1, 1])
-        ax.set_title(f"Estimated Camera Pose vs Ground Truth at t={est_time}")
+        plt.draw(); plt.pause(0.05)
 
-        plt.draw()
-        plt.pause(0.05)
         index += 1
 
-    mean_l2_error = np.mean(l2_errors)
-    print(f"Mean Squared Error: {mean_l2_error:.4f}")
-    # Final L2 norm plot
+    # position error plot (unchanged)
+    mean_l2 = np.mean(l2_errors)
+    print(f"Mean L2 Error: {mean_l2:.4f}")
     plt.ioff()
-    fig2 = plt.figure(figsize=(10, 5))
-    plt.plot(timestamps, l2_errors)
-    plt.axhline(y=mean_l2_error, color='r', linestyle='--', label=f'Mean L2 Error: {mean_l2_error:.4f}')
-    plt.ylim([0, 1])
-    plt.xlabel("Timestamps")
-    plt.ylabel("MSE value")
-    plt.title("MSE in position")
-    plt.grid(True)
-    plt.tight_layout()
+    fig2 = plt.figure(figsize=(10,5))
+    plt.plot(timestamps, l2_errors, label='L2 Pos. Error')
+    plt.axhline(mean_l2, color='r', linestyle='--', label=f'Mean: {mean_l2:.4f}')
+    plt.xlabel("Timestamp"); plt.ylabel("Position Error (m)")
+    plt.title("Position Error over Time")
+    plt.legend(); plt.grid(True); plt.tight_layout()
+    # set y lim
+    plt.ylim([0, 1.0])
+
+    # --- Orientation comparison plot ---
+    fig3, axes = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
+    # Roll
+    axes[0].plot(timestamps, roll_est_list, label='Roll Est.')
+    axes[0].plot(timestamps, roll_gt_list,  label='Roll GT')
+    axes[0].set_ylabel("Roll (°)")
+    axes[0].legend(); axes[0].grid(True)
+    # set axes limits
+    axes[0].set_ylim([-30, 30])
+
+    # Pitch
+    axes[1].plot(timestamps, pitch_est_list, label='Pitch Est.')
+    axes[1].plot(timestamps, pitch_gt_list,  label='Pitch GT')
+    axes[1].set_ylabel("Pitch (°)")
+    axes[1].legend(); axes[1].grid(True)
+    axes[1].set_ylim([-30, 30])
+    # Yaw
+    axes[2].plot(timestamps, yaw_est_list, label='Yaw Est.')
+    axes[2].plot(timestamps, yaw_gt_list,  label='Yaw GT')
+    axes[2].set_ylabel("Yaw (°)"); axes[2].set_xlabel("Timestamp")
+    axes[2].legend(); axes[2].grid(True)
+    axes[2].set_ylim([-30, 30])
+
+    fig3.suptitle("Estimated vs Ground Truth Orientation")
+    plt.tight_layout(rect=[0, 0.03, 1, 0.97])
     plt.show()
 
 def rotationMatrixToEulerAngles(R):
@@ -323,9 +354,12 @@ def estimate_pose(frame_data, scale=0.2):
     if rvec is not None and tvec is not None:
 
         # ------------------------- Estimated Pose -------------------------
+        # World wrt to cam
         R_est, _ = cv2.Rodrigues(rvec)
-        camera_position = (-R_est.T @ tvec.reshape(3)).flatten()
-        drone_offset = - R_est.T @ CAM_TO_DRONE_ROTATION.T @ CAM_TO_DRONE_TRANSLATION
+        # Cam wrt to world
+        R_est = R_est.T
+        camera_position = (-R_est @ tvec.reshape(3)).flatten()
+        drone_offset = - R_est @ CAM_TO_DRONE_ROTATION.T @ CAM_TO_DRONE_TRANSLATION
         drone_position = camera_position + drone_offset
 
         return drone_position, R_est
@@ -341,6 +375,16 @@ def save_images(data):
         cv2.imwrite(f"Module_2_PnP/test/img_{i}.png", img)
     
     return None
+
+def wrap_angle_to_zero(angle, tol=1e-2):
+
+    # Normalize angle to [-pi, pi]
+    angle = (angle + np.pi) % (2 * np.pi) - np.pi
+
+    # Set small angles around ±pi to zero
+    wrapped_angle = np.where(np.abs(np.abs(angle) - np.pi) < tol, 0.0, angle)
+
+    return wrapped_angle
 
 def estimate_covariance(estimated, aligned_gt):
 
@@ -363,8 +407,8 @@ def estimate_covariance(estimated, aligned_gt):
         r = R.from_matrix(R_est)
         roll_est, pitch_est, yaw_est = r.as_euler('xyz', degrees=False)
 
-        # Construct full estimated pose
-        est_pose = np.array([drone_position[0], drone_position[1], drone_position[2], roll_est, pitch_est, yaw_est])
+        # Construct full estimated pose with extremely undesirable hack
+        est_pose = np.array([drone_position[0], drone_position[1], drone_position[2], wrap_angle_to_zero(roll_est-np.pi), pitch_est, yaw_est])
 
         # Compute residual v_t = ground truth - estimated
         v_t = np.array(gt_data[:6]) - est_pose
